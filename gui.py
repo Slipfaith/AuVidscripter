@@ -96,6 +96,14 @@ class DragDropWidget(QWidget):
         )
         model_layout.addWidget(self.model_combo)
 
+        engine_label = QLabel("Движок распознавания:")
+        model_layout.addWidget(engine_label)
+
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["whisper", "faster-whisper"])
+        self.engine_combo.setCurrentText("whisper")
+        model_layout.addWidget(self.engine_combo)
+
         format_label = QLabel("Формат результата:")
         model_layout.addWidget(format_label)
 
@@ -410,6 +418,7 @@ class DragDropWidget(QWidget):
             return
         self.setAcceptDrops(False)
         self.model_combo.setEnabled(False)
+        self.engine_combo.setEnabled(False)
         self.format_combo.setEnabled(False)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -420,6 +429,7 @@ class DragDropWidget(QWidget):
             self.file_queue.copy(),
             self.model_combo.currentText(),
             "txt" if self.format_combo.currentText().startswith("TXT") else "srt",
+            backend=self.engine_combo.currentText(),
         )
         self.transcription_thread.progress.connect(self.update_progress)
         self.transcription_thread.status.connect(self.update_status)
@@ -504,6 +514,7 @@ class DragDropWidget(QWidget):
     def reset_ui_state(self):  # noqa: D401
         self.setAcceptDrops(True)
         self.model_combo.setEnabled(True)
+        self.engine_combo.setEnabled(True)
         self.format_combo.setEnabled(True)
         self.start_button.setEnabled(bool(self.file_queue))
         self.stop_button.setEnabled(False)
