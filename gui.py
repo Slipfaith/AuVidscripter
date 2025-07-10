@@ -95,6 +95,13 @@ class DragDropWidget(QWidget):
             "large: максимальная точность, медленная"
         )
         model_layout.addWidget(self.model_combo)
+
+        format_label = QLabel("Формат результата:")
+        model_layout.addWidget(format_label)
+
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["SRT", "TXT (без тайм-кодов)"])
+        model_layout.addWidget(self.format_combo)
         layout.addLayout(model_layout)
 
         self.drop_area = QLabel("Перетащите сюда аудио/видео файлы или папки")
@@ -403,13 +410,16 @@ class DragDropWidget(QWidget):
             return
         self.setAcceptDrops(False)
         self.model_combo.setEnabled(False)
+        self.format_combo.setEnabled(False)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.clear_list_button.setEnabled(False)
         self.elapsed_timer.start()
 
         self.transcription_thread = TranscriptionThread(
-            self.file_queue.copy(), self.model_combo.currentText()
+            self.file_queue.copy(),
+            self.model_combo.currentText(),
+            "txt" if self.format_combo.currentText().startswith("TXT") else "srt",
         )
         self.transcription_thread.progress.connect(self.update_progress)
         self.transcription_thread.status.connect(self.update_status)
@@ -446,9 +456,9 @@ class DragDropWidget(QWidget):
         if total > 0:
             self.overall_progress_bar.setValue(int((current / total) * 100))
 
-    def on_file_finished(self, file_path, srt_path):
-        self.processed_files.append(srt_path)
-        self.log_text.append(f"✅ Создан SRT: {os.path.basename(srt_path)}")
+    def on_file_finished(self, file_path, output_path):
+        self.processed_files.append(output_path)
+        self.log_text.append(f"✅ Создан файл: {os.path.basename(output_path)}")
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
             if item.file_path == file_path:
@@ -486,7 +496,7 @@ class DragDropWidget(QWidget):
         self.status_label.setText("Обработка завершена!")
         self.current_file_label.setText("")
         self.log_text.append(
-            f"✨ Обработка завершена! Создано {len(self.processed_files)} SRT файлов"
+            f"✨ Обработка завершена! Создано {len(self.processed_files)} файлов"
         )
         self.log_text.append(f"⏱️ Общее время обработки: {time_str}")
         self.reset_ui_state()
@@ -494,6 +504,7 @@ class DragDropWidget(QWidget):
     def reset_ui_state(self):  # noqa: D401
         self.setAcceptDrops(True)
         self.model_combo.setEnabled(True)
+        self.format_combo.setEnabled(True)
         self.start_button.setEnabled(bool(self.file_queue))
         self.stop_button.setEnabled(False)
         self.clear_list_button.setEnabled(True)
