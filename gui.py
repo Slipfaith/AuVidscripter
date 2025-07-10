@@ -1,4 +1,5 @@
 """GUI components of the application."""
+
 import os
 import sys
 from pathlib import Path
@@ -80,9 +81,11 @@ class DragDropWidget(QWidget):
         )
         layout.addWidget(self.title_label)
 
-        model_layout = QVBoxLayout()
+        options_layout = QHBoxLayout()
+
+        model_group = QVBoxLayout()
         model_label = QLabel("Выберите размер модели:")
-        model_layout.addWidget(model_label)
+        model_group.addWidget(model_label)
 
         self.model_combo = QComboBox()
         self.model_combo.addItems(["tiny", "base", "small", "medium", "large"])
@@ -94,27 +97,33 @@ class DragDropWidget(QWidget):
             "medium: высокая точность\n"
             "large: максимальная точность, медленная"
         )
-        model_layout.addWidget(self.model_combo)
+        model_group.addWidget(self.model_combo)
+        options_layout.addLayout(model_group)
 
+        engine_group = QVBoxLayout()
         engine_label = QLabel("Движок распознавания:")
-        model_layout.addWidget(engine_label)
+        engine_group.addWidget(engine_label)
 
         self.engine_combo = QComboBox()
         self.engine_combo.addItems(["whisper", "faster-whisper"])
         self.engine_combo.setCurrentText("whisper")
-        model_layout.addWidget(self.engine_combo)
+        engine_group.addWidget(self.engine_combo)
+        options_layout.addLayout(engine_group)
 
+        format_group = QVBoxLayout()
         format_label = QLabel("Формат результата:")
-        model_layout.addWidget(format_label)
+        format_group.addWidget(format_label)
 
         self.format_combo = QComboBox()
         self.format_combo.addItems(["SRT", "TXT (без тайм-кодов)"])
-        model_layout.addWidget(self.format_combo)
-        layout.addLayout(model_layout)
+        format_group.addWidget(self.format_combo)
+        options_layout.addLayout(format_group)
+
+        layout.addLayout(options_layout)
 
         self.drop_area = QLabel("Перетащите сюда аудио/видео файлы или папки")
         self.drop_area.setAlignment(Qt.AlignCenter)
-        self.drop_area.setMinimumHeight(150)
+        self.drop_area.setMinimumHeight(60)
         self.drop_area.setStyleSheet(
             """
             QLabel {
@@ -129,7 +138,9 @@ class DragDropWidget(QWidget):
         )
         layout.addWidget(self.drop_area)
 
-        self.file_counter_label = QLabel("Файлов в очереди: 0 | Обработано: 0 | Ошибок: 0")
+        self.file_counter_label = QLabel(
+            "Файлов в очереди: 0 | Обработано: 0 | Ошибок: 0"
+        )
         self.file_counter_label.setAlignment(Qt.AlignCenter)
         self.file_counter_label.setStyleSheet(
             """
@@ -228,10 +239,6 @@ class DragDropWidget(QWidget):
 
         status_group = QGroupBox("Статус обработки")
         status_layout = QVBoxLayout()
-
-        self.current_file_label = QLabel("")
-        self.current_file_label.setAlignment(Qt.AlignCenter)
-        status_layout.addWidget(self.current_file_label)
 
         self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignCenter)
@@ -375,9 +382,13 @@ class DragDropWidget(QWidget):
                 self.file_queue.append(file_path)
                 item = FileListItem(file_path)
                 self.file_list.addItem(item)
-                self.log_text.append(f"📁 Добавлен в очередь: {os.path.basename(file_path)}")
+                self.log_text.append(
+                    f"📁 Добавлен в очередь: {os.path.basename(file_path)}"
+                )
         else:
-            self.log_text.append(f"❌ Неподдерживаемый формат: {os.path.basename(file_path)}")
+            self.log_text.append(
+                f"❌ Неподдерживаемый формат: {os.path.basename(file_path)}"
+            )
 
     def scan_directory_for_files(self, directory, valid_extensions):
         found_files = 0
@@ -392,7 +403,9 @@ class DragDropWidget(QWidget):
                         self.file_list.addItem(item)
                         found_files += 1
         if found_files > 0:
-            self.log_text.append(f"✅ Найдено {found_files} файлов в папке {os.path.basename(directory)}")
+            self.log_text.append(
+                f"✅ Найдено {found_files} файлов в папке {os.path.basename(directory)}"
+            )
         else:
             self.log_text.append(
                 f"⚠️ Не найдено подходящих файлов в папке {os.path.basename(directory)}"
@@ -404,13 +417,26 @@ class DragDropWidget(QWidget):
         self.processed_files.clear()
         self.update_file_counter()
         self.start_button.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.overall_progress_label.setText("Общий прогресс: 0/0")
+        self.overall_progress_bar.setValue(0)
+        self.status_label.setText("")
+        self.log_text.clear()
         self.log_text.append("🗑️ Очередь очищена")
 
     def update_file_counter(self):  # noqa: D401
         total = len(self.file_queue)
         processed = len(self.processed_files)
-        errors = len([i for i in range(self.file_list.count()) if self.file_list.item(i).status == "error"])
-        self.file_counter_label.setText(f"Файлов в очереди: {total} | Обработано: {processed} | Ошибок: {errors}")
+        errors = len(
+            [
+                i
+                for i in range(self.file_list.count())
+                if self.file_list.item(i).status == "error"
+            ]
+        )
+        self.file_counter_label.setText(
+            f"Файлов в очереди: {total} | Обработано: {processed} | Ошибок: {errors}"
+        )
 
     # --- processing --------------------------------------------------
     def start_processing(self):
@@ -454,7 +480,6 @@ class DragDropWidget(QWidget):
         self.status_label.setText(status)
 
     def update_current_file(self, filename):
-        self.current_file_label.setText(f"Текущий файл: {filename}")
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
             if os.path.basename(item.file_path) == filename:
@@ -481,7 +506,9 @@ class DragDropWidget(QWidget):
 
     def on_file_error(self, file_path, error):
         if file_path:
-            self.log_text.append(f"❌ Ошибка для {os.path.basename(file_path)}: {error}")
+            self.log_text.append(
+                f"❌ Ошибка для {os.path.basename(file_path)}: {error}"
+            )
             for i in range(self.file_list.count()):
                 item = self.file_list.item(i)
                 if item.file_path == file_path:
@@ -504,7 +531,6 @@ class DragDropWidget(QWidget):
         else:
             time_str = f"{seconds}с"
         self.status_label.setText("Обработка завершена!")
-        self.current_file_label.setText("")
         self.log_text.append(
             f"✨ Обработка завершена! Создано {len(self.processed_files)} файлов"
         )
