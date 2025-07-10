@@ -1,0 +1,33 @@
+# IDE
+.idea/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# setuptools metadata
+*.egg-info/
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# Базы данных
+*.db
+
+# Текстовые файлы (игнорим всё, кроме requirements.txt)
+*.txt
+!requirements.txt
+
+# Сгенерированные артефакты
+*.html
+*.xlsx
+
+# Сторонние колёса
+third_party/*.whl
+
+# Виртуальные окружения
+.venv/
+env/
