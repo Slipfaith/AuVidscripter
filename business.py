@@ -36,6 +36,7 @@ class TranscriptionThread(QThread):
                 warnings.simplefilter("ignore")
                 if self.backend == "faster-whisper":
                     from faster_whisper import WhisperModel
+
                     model = WhisperModel(
                         self.model_size,
                         device="cpu",
@@ -58,9 +59,7 @@ class TranscriptionThread(QThread):
                 self.overall_progress.emit(index + 1, total_files)
 
                 try:
-                    self.status.emit(
-                        f"Транскрибирование: {os.path.basename(file_path)}"
-                    )
+                    self.status.emit("Транскрибирование")
                     self.progress.emit(30)
 
                     if self.backend == "faster-whisper":
@@ -74,7 +73,6 @@ class TranscriptionThread(QThread):
                         result_segments = result["segments"]
 
                     self.progress.emit(80)
-                    self.status.emit("Создание файла...")
 
                     input_path = Path(file_path)
                     if self.output_format == "txt":
