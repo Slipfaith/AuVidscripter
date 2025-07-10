@@ -12,15 +12,16 @@ class TranscriptionThread(QThread):
 
     progress = Signal(int)
     status = Signal(str)
-    finished = Signal(str, str)  # file_path, srt_path
+    finished = Signal(str, str)  # file_path, output_path
     error = Signal(str, str)  # file_path, error_message
     current_file = Signal(str)
     overall_progress = Signal(int, int)  # current, total
 
-    def __init__(self, file_paths, model_size):
+    def __init__(self, file_paths, model_size, output_format="srt"):
         super().__init__()
         self.file_paths = file_paths
         self.model_size = model_size
+        self.output_format = output_format
         self.is_running = True
 
     def run(self):
@@ -48,18 +49,21 @@ class TranscriptionThread(QThread):
                     result = model.transcribe(file_path, language="en", fp16=False)
 
                     self.progress.emit(80)
-                    self.status.emit("Создание SRT файла...")
-
-                    srt_content = self.create_srt(result["segments"])
+                    self.status.emit("Создание файла...")
 
                     input_path = Path(file_path)
-                    srt_path = input_path.with_suffix(".srt")
+                    if self.output_format == "txt":
+                        content = self.create_txt(result["segments"])
+                        output_path = input_path.with_suffix(".txt")
+                    else:
+                        content = self.create_srt(result["segments"])
+                        output_path = input_path.with_suffix(".srt")
 
-                    with open(srt_path, "w", encoding="utf-8") as f:
-                        f.write(srt_content)
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        f.write(content)
 
                     self.progress.emit(100)
-                    self.finished.emit(file_path, str(srt_path))
+                    self.finished.emit(file_path, str(output_path))
 
                 except Exception as e:  # noqa: BLE001
                     self.error.emit(file_path, str(e))
@@ -82,6 +86,10 @@ class TranscriptionThread(QThread):
             srt_content += f"{text}\n\n"
 
         return srt_content
+
+    def create_txt(self, segments):
+        """Return plain text without time codes from segments."""
+        return "\n".join(segment["text"].strip() for segment in segments)
 
     def format_timestamp(self, seconds):
         td = timedelta(seconds=seconds)
