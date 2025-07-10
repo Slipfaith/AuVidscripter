@@ -4,7 +4,11 @@ import warnings
 from pathlib import Path
 from datetime import timedelta
 from PySide6.QtCore import QThread, Signal
-import whisper
+
+try:
+    import whisper
+except ImportError:  # pragma: no cover - optional dependency
+    whisper = None
 
 
 class TranscriptionThread(QThread):
@@ -17,11 +21,12 @@ class TranscriptionThread(QThread):
     current_file = Signal(str)
     overall_progress = Signal(int, int)  # current, total
 
-    def __init__(self, file_paths, model_size, output_format="srt"):
+    def __init__(self, file_paths, model_size, output_format="srt", backend="whisper"):
         super().__init__()
         self.file_paths = file_paths
         self.model_size = model_size
         self.output_format = output_format
+        self.backend = backend
         self.is_running = True
 
     def run(self):
@@ -29,7 +34,19 @@ class TranscriptionThread(QThread):
             self.status.emit("Загрузка модели...")
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                model = whisper.load_model(self.model_size)
+                if self.backend == "faster-whisper":
+                    from faster_whisper import WhisperModel
+                    model = WhisperModel(
+                        self.model_size,
+                        device="cpu",
+                        compute_type="int8",
+                    )
+                else:
+                    if whisper is None:
+                        raise RuntimeError(
+                            "whisper package is not installed, выбрать 'faster-whisper'"
+                        )
+                    model = whisper.load_model(self.model_size)
 
             total_files = len(self.file_paths)
 
@@ -46,17 +63,25 @@ class TranscriptionThread(QThread):
                     )
                     self.progress.emit(30)
 
-                    result = model.transcribe(file_path, language="en", fp16=False)
+                    if self.backend == "faster-whisper":
+                        segments, _ = model.transcribe(file_path, language="en")
+                        result_segments = [
+                            {"start": s.start, "end": s.end, "text": s.text}
+                            for s in segments
+                        ]
+                    else:
+                        result = model.transcribe(file_path, language="en", fp16=False)
+                        result_segments = result["segments"]
 
                     self.progress.emit(80)
                     self.status.emit("Создание файла...")
 
                     input_path = Path(file_path)
                     if self.output_format == "txt":
-                        content = self.create_txt(result["segments"])
+                        content = self.create_txt(result_segments)
                         output_path = input_path.with_suffix(".txt")
                     else:
-                        content = self.create_srt(result["segments"])
+                        content = self.create_srt(result_segments)
                         output_path = input_path.with_suffix(".srt")
 
                     with open(output_path, "w", encoding="utf-8") as f:
