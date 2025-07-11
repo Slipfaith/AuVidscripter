@@ -18,11 +18,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QGroupBox,
     QListWidgetItem,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt, QTimer, QElapsedTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
-from business import TranscriptionThread
+from business import TranscriptionThread, BenchmarkThread
 from logger_setup import setup_logging
 
 
@@ -50,6 +53,116 @@ class FileListItem(QListWidgetItem):
             self.setText(f"❌ {os.path.basename(self.file_path)}")
 
 
+class BenchmarkDialog(QDialog):
+    """Dialog for running performance benchmark."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Бенчмарк производительности")
+        self.setModal(True)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+
+        layout = QVBoxLayout()
+
+        # Выбор модели для теста
+        model_layout = QHBoxLayout()
+        model_label = QLabel("Размер модели для теста:")
+        model_layout.addWidget(model_label)
+
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(["tiny", "base", "small"])
+        self.model_combo.setCurrentText("tiny")
+        model_layout.addWidget(self.model_combo)
+        model_layout.addStretch()
+        layout.addLayout(model_layout)
+
+        # Кнопка выбора файла
+        self.file_button = QPushButton("Выбрать тестовый аудио файл")
+        self.file_button.clicked.connect(self.select_file)
+        layout.addWidget(self.file_button)
+
+        self.file_label = QLabel("Файл не выбран")
+        self.file_label.setStyleSheet("color: #7f8c8d;")
+        layout.addWidget(self.file_label)
+
+        # Прогресс
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar)
+
+        self.status_label = QLabel("")
+        layout.addWidget(self.status_label)
+
+        # Результаты
+        self.results_text = QTextEdit()
+        self.results_text.setReadOnly(True)
+        layout.addWidget(self.results_text)
+
+        # Кнопки
+        button_layout = QHBoxLayout()
+        self.run_button = QPushButton("Запустить бенчмарк")
+        self.run_button.clicked.connect(self.run_benchmark)
+        self.run_button.setEnabled(False)
+        button_layout.addWidget(self.run_button)
+
+        self.close_button = QPushButton("Закрыть")
+        self.close_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.close_button)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+        self.test_file = None
+        self.benchmark_thread = None
+
+    def select_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите аудио файл для теста",
+            "",
+            "Audio Files (*.mp3 *.wav *.m4a *.flac *.aac *.ogg *.opus);;Video Files (*.mp4 *.avi *.mov *.mkv)"
+        )
+        if file_path:
+            self.test_file = file_path
+            self.file_label.setText(f"Выбран: {os.path.basename(file_path)}")
+            self.file_label.setStyleSheet("color: #27ae60;")
+            self.run_button.setEnabled(True)
+
+    def run_benchmark(self):
+        if not self.test_file:
+            return
+
+        self.run_button.setEnabled(False)
+        self.model_combo.setEnabled(False)
+        self.file_button.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.results_text.clear()
+
+        self.benchmark_thread = BenchmarkThread(
+            self.test_file,
+            self.model_combo.currentText()
+        )
+        self.benchmark_thread.status.connect(self.status_label.setText)
+        self.benchmark_thread.progress.connect(self.progress_bar.setValue)
+        self.benchmark_thread.result.connect(self.on_benchmark_complete)
+        self.benchmark_thread.error.connect(self.on_benchmark_error)
+        self.benchmark_thread.start()
+
+    def on_benchmark_complete(self, result):
+        self.results_text.setText(result)
+        self.run_button.setEnabled(True)
+        self.model_combo.setEnabled(True)
+        self.file_button.setEnabled(True)
+        self.status_label.setText("Бенчмарк завершен!")
+
+    def on_benchmark_error(self, error):
+        self.results_text.setText(f"❌ Ошибка: {error}")
+        self.run_button.setEnabled(True)
+        self.model_combo.setEnabled(True)
+        self.file_button.setEnabled(True)
+        self.status_label.setText("Ошибка бенчмарка")
+
+
 class DragDropWidget(QWidget):
     """Widget that manages file dropping and processing."""
 
@@ -62,6 +175,7 @@ class DragDropWidget(QWidget):
         self.processed_files = []
         self.elapsed_timer = QElapsedTimer()
         self.total_elapsed_ms = 0
+        self.benchmark_results = {}  # Для хранения результатов скорости
 
     # --- UI setup -----------------------------------------------------
     def init_ui(self):
@@ -119,6 +233,32 @@ class DragDropWidget(QWidget):
         format_group.addWidget(self.format_combo)
         options_layout.addLayout(format_group)
 
+        # Кнопка бенчмарка
+        benchmark_group = QVBoxLayout()
+        benchmark_label = QLabel("Тестирование:")
+        benchmark_group.addWidget(benchmark_label)
+
+        self.benchmark_button = QPushButton("🏁 Бенчмарк")
+        self.benchmark_button.clicked.connect(self.show_benchmark_dialog)
+        self.benchmark_button.setToolTip("Сравнить скорость whisper и faster-whisper")
+        self.benchmark_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                padding: 5px;
+                border-radius: 5px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+            """
+        )
+        benchmark_group.addWidget(self.benchmark_button)
+        options_layout.addLayout(benchmark_group)
+
         layout.addLayout(options_layout)
 
         self.drop_area = QLabel("Перетащите сюда аудио/видео файлы или папки")
@@ -156,6 +296,20 @@ class DragDropWidget(QWidget):
             """
         )
         layout.addWidget(self.file_counter_label)
+
+        # Метка производительности
+        self.performance_label = QLabel("")
+        self.performance_label.setAlignment(Qt.AlignCenter)
+        self.performance_label.setStyleSheet(
+            """
+            QLabel {
+                font-size: 12px;
+                color: #8e44ad;
+                margin: 5px;
+            }
+            """
+        )
+        layout.addWidget(self.performance_label)
 
         files_group = QGroupBox("Очередь файлов")
         files_layout = QVBoxLayout()
@@ -319,7 +473,7 @@ class DragDropWidget(QWidget):
                 """
             )
 
-    def dragLeaveEvent(self, event):  # noqa: D401
+    def dragLeaveEvent(self, event):
         self.drop_area.setStyleSheet(
             """
             QLabel {
@@ -411,7 +565,7 @@ class DragDropWidget(QWidget):
                 f"⚠️ Не найдено подходящих файлов в папке {os.path.basename(directory)}"
             )
 
-    def clear_file_list(self):  # noqa: D401
+    def clear_file_list(self):
         self.file_queue.clear()
         self.file_list.clear()
         self.processed_files.clear()
@@ -421,22 +575,31 @@ class DragDropWidget(QWidget):
         self.overall_progress_label.setText("Общий прогресс: 0/0")
         self.overall_progress_bar.setValue(0)
         self.status_label.setText("")
+        self.performance_label.setText("")
         self.log_text.clear()
         self.log_text.append("🗑️ Очередь очищена")
 
-    def update_file_counter(self):  # noqa: D401
-        total = len(self.file_queue)
-        processed = len(self.processed_files)
-        errors = len(
+    def count_errors(self):
+        """Count the number of files with error status."""
+        return len(
             [
                 i
                 for i in range(self.file_list.count())
                 if self.file_list.item(i).status == "error"
             ]
         )
+
+    def update_file_counter(self):
+        total = len(self.file_queue)
+        processed = len(self.processed_files)
+        errors = self.count_errors()
         self.file_counter_label.setText(
             f"Файлов в очереди: {total} | Обработано: {processed} | Ошибок: {errors}"
         )
+
+    def show_benchmark_dialog(self):
+        dialog = BenchmarkDialog(self)
+        dialog.exec()
 
     # --- processing --------------------------------------------------
     def start_processing(self):
@@ -447,8 +610,9 @@ class DragDropWidget(QWidget):
         self.engine_combo.setEnabled(False)
         self.format_combo.setEnabled(False)
         self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
         self.clear_list_button.setEnabled(False)
+        self.benchmark_button.setEnabled(False)
         self.elapsed_timer.start()
 
         self.transcription_thread = TranscriptionThread(
@@ -463,6 +627,7 @@ class DragDropWidget(QWidget):
         self.transcription_thread.error.connect(self.on_file_error)
         self.transcription_thread.current_file.connect(self.update_current_file)
         self.transcription_thread.overall_progress.connect(self.update_overall_progress)
+        self.transcription_thread.benchmark_result.connect(self.on_benchmark_result)
         self.transcription_thread.start()
 
     def stop_processing(self):
@@ -473,10 +638,10 @@ class DragDropWidget(QWidget):
             self.drop_area.setVisible(True)
 
     # --- signals from thread ---------------------------------------
-    def update_progress(self, value):  # noqa: D401
+    def update_progress(self, value):
         self.progress_bar.setValue(value)
 
-    def update_status(self, status):  # noqa: D401
+    def update_status(self, status):
         self.status_label.setText(status)
 
     def update_current_file(self, filename):
@@ -485,11 +650,20 @@ class DragDropWidget(QWidget):
             if os.path.basename(item.file_path) == filename:
                 item.status = "processing"
                 item.update_appearance()
+                # Auto-scroll to current item
+                self.file_list.scrollToItem(item)
+                break
 
-    def update_overall_progress(self, current, total):  # noqa: D401
+    def update_overall_progress(self, current, total):
         self.overall_progress_label.setText(f"Общий прогресс: {current}/{total}")
         if total > 0:
             self.overall_progress_bar.setValue(int((current / total) * 100))
+
+    def on_benchmark_result(self, engine_name, time_per_minute):
+        self.benchmark_results[engine_name] = time_per_minute
+        self.performance_label.setText(
+            f"⚡ Скорость {engine_name}: {time_per_minute:.1f}с на минуту аудио"
+        )
 
     def on_file_finished(self, file_path, output_path):
         self.processed_files.append(output_path)
@@ -501,7 +675,10 @@ class DragDropWidget(QWidget):
                 item.update_appearance()
                 break
         self.update_file_counter()
-        if not self.transcription_thread or not self.transcription_thread.isRunning():
+
+        # Check if all files are processed
+        all_processed = len(self.processed_files) + self.count_errors() == len(self.file_queue)
+        if all_processed and self.transcription_thread:
             QTimer.singleShot(100, self.on_all_processing_complete)
 
     def on_file_error(self, file_path, error):
@@ -519,6 +696,11 @@ class DragDropWidget(QWidget):
             self.log_text.append(f"❌ {error}")
         self.update_file_counter()
 
+        # Check if all files are processed
+        all_processed = len(self.processed_files) + self.count_errors() == len(self.file_queue)
+        if all_processed and self.transcription_thread:
+            QTimer.singleShot(100, self.on_all_processing_complete)
+
     def on_all_processing_complete(self):
         elapsed_ms = self.elapsed_timer.elapsed()
         hours = elapsed_ms // 3600000
@@ -535,9 +717,17 @@ class DragDropWidget(QWidget):
             f"✨ Обработка завершена! Создано {len(self.processed_files)} файлов"
         )
         self.log_text.append(f"⏱️ Общее время обработки: {time_str}")
+
+        # Показываем финальную производительность если есть данные
+        if self.transcription_thread.backend in self.benchmark_results:
+            speed = self.benchmark_results[self.transcription_thread.backend]
+            self.log_text.append(
+                f"⚡ Средняя скорость: {speed:.1f}с на минуту аудио"
+            )
+
         self.reset_ui_state()
 
-    def reset_ui_state(self):  # noqa: D401
+    def reset_ui_state(self):
         self.setAcceptDrops(True)
         self.model_combo.setEnabled(True)
         self.engine_combo.setEnabled(True)
@@ -545,6 +735,7 @@ class DragDropWidget(QWidget):
         self.start_button.setEnabled(bool(self.file_queue))
         self.stop_button.setEnabled(False)
         self.clear_list_button.setEnabled(True)
+        self.benchmark_button.setEnabled(True)
 
 
 class MainWindow(QMainWindow):
@@ -553,7 +744,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Audio/Video to SRT Transcriber - Batch Processing")
-        self.setGeometry(100, 100, 700, 800)
+        self.setGeometry(100, 100, 700, 850)
         self.central_widget = DragDropWidget()
         self.setCentralWidget(self.central_widget)
         self.setStyleSheet(
