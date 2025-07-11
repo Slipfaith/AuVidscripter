@@ -1,3 +1,57 @@
+import os
+import sys
+import logging
+from pathlib import Path
+import platform
+
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QTextEdit,
+    QComboBox,
+    QListWidget,
+    QGroupBox,
+    QListWidgetItem,
+    QDialog,
+    QFileDialog,
+    QMessageBox,
+    QGraphicsOpacityEffect,
+    QSystemTrayIcon,
+    QSplitter,
+    QSizePolicy,
+)
+from PySide6.QtCore import (
+    Qt, QTimer, QElapsedTimer, QPropertyAnimation,
+    QEasingCurve, Signal
+)
+from PySide6.QtGui import (
+    QDragEnterEvent, QDropEvent, QCloseEvent,
+    QColor
+)
+
+# Platform-specific imports for taskbar progress
+if platform.system() == 'Windows':
+    try:
+        from PySide6.QtWinExtras import QWinTaskbarButton, QWinTaskbarProgress
+        TASKBAR_AVAILABLE = True
+    except ImportError:
+        TASKBAR_AVAILABLE = False
+else:
+    TASKBAR_AVAILABLE = False
+
+from business import TranscriptionThread, BenchmarkThread, ModelManager
+from logger_setup import setup_logging
+from theme import Theme
+
+logger = logging.getLogger(__name__)
+
+
 class MainWindow(QMainWindow):
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -432,60 +486,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()"""GUI components with horizontal layout design."""
-
-import os
-import sys
-import logging
-from pathlib import Path
-import platform
-
-from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QTextEdit,
-    QComboBox,
-    QListWidget,
-    QGroupBox,
-    QListWidgetItem,
-    QDialog,
-    QFileDialog,
-    QMessageBox,
-    QGraphicsOpacityEffect,
-    QSystemTrayIcon,
-    QSplitter,
-    QSizePolicy,
-)
-from PySide6.QtCore import (
-    Qt, QTimer, QElapsedTimer, QPropertyAnimation, 
-    QEasingCurve, Signal
-)
-from PySide6.QtGui import (
-    QDragEnterEvent, QDropEvent, QCloseEvent,
-    QColor
-)
-
-# Platform-specific imports for taskbar progress
-if platform.system() == 'Windows':
-    try:
-        from PySide6.QtWinExtras import QWinTaskbarButton, QWinTaskbarProgress
-        TASKBAR_AVAILABLE = True
-    except ImportError:
-        TASKBAR_AVAILABLE = False
-else:
-    TASKBAR_AVAILABLE = False
-
-from business import TranscriptionThread, BenchmarkThread, ModelManager
-from logger_setup import setup_logging
-from theme import Theme
-
-logger = logging.getLogger(__name__)
+    main()
 
 
 class FileListItem(QListWidgetItem):
