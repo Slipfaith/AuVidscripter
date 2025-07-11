@@ -2,6 +2,10 @@
 import os
 import warnings
 import time
+import logging
+import subprocess
+import json
+import shutil
 from pathlib import Path
 from datetime import timedelta
 from PySide6.QtCore import QThread, Signal
@@ -10,6 +14,94 @@ try:
     import whisper
 except ImportError:  # pragma: no cover - optional dependency
     whisper = None
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
+
+# Глобальный кэш для моделей
+MODEL_CACHE = {}
+
+
+class ModelManager:
+    """Менеджер для кэширования и управления моделями."""
+
+    @staticmethod
+    def get_model(model_size, backend="whisper"):
+        """Получить модель из кэша или загрузить новую."""
+        cache_key = f"{backend}_{model_size}"
+
+        if cache_key in MODEL_CACHE:
+            logger.info(f"Используется кэшированная модель: {cache_key}")
+            return MODEL_CACHE[cache_key]
+
+        logger.info(f"Загрузка новой модели: {cache_key}")
+
+        # Подавляем предупреждения о symlinks и pkg_resources
+        os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            if backend == "faster-whisper":
+                from faster_whisper import WhisperModel
+                import torch
+
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                compute_type = "float16" if device == "cuda" else "int8"
+
+                model = WhisperModel(
+                    model_size,
+                    device=device,
+                    compute_type=compute_type,
+                    cpu_threads=os.cpu_count(),
+                    num_workers=4,
+                )
+            else:
+                if whisper is None:
+                    raise RuntimeError(
+                        "whisper package is not installed, выберите 'faster-whisper'"
+                    )
+                model = whisper.load_model(model_size)
+
+        MODEL_CACHE[cache_key] = model
+        return model
+
+    @staticmethod
+    def clear_cache():
+        """Очистить кэш моделей для освобождения памяти."""
+        global MODEL_CACHE
+        MODEL_CACHE.clear()
+        logger.info("Кэш моделей очищен")
+
+
+class FFProbeChecker:
+    """Проверка доступности ffprobe."""
+
+    _is_available = None
+
+    @classmethod
+    def is_available(cls):
+        """Проверить доступность ffprobe (с кэшированием результата)."""
+        if cls._is_available is not None:
+            return cls._is_available
+
+        try:
+            result = subprocess.run(
+                ['ffprobe', '-version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            cls._is_available = result.returncode == 0
+            if cls._is_available:
+                logger.info("ffprobe доступен")
+            else:
+                logger.warning("ffprobe недоступен")
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            logger.warning(f"Ошибка проверки ffprobe: {e}")
+            cls._is_available = False
+
+        return cls._is_available
 
 
 class TranscriptionThread(QThread):
@@ -22,6 +114,7 @@ class TranscriptionThread(QThread):
     current_file = Signal(str)
     overall_progress = Signal(int, int)  # current, total
     benchmark_result = Signal(str, float)  # engine_name, time_per_minute
+    file_not_found = Signal(str)  # file_path that was not found
 
     def __init__(self, file_paths, model_size, output_format="srt", backend="whisper"):
         super().__init__()
@@ -32,13 +125,11 @@ class TranscriptionThread(QThread):
         self.is_running = True
         self.total_audio_duration = 0
         self.total_processing_time = 0
+        self._should_stop = False
 
     def run(self):
         try:
             self.status.emit("Загрузка модели...")
-
-            # Подавляем предупреждения о symlinks и pkg_resources
-            os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
             # Определяем устройство для информирования пользователя
             try:
@@ -49,34 +140,12 @@ class TranscriptionThread(QThread):
 
             start_load_time = time.time()
 
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                if self.backend == "faster-whisper":
-                    from faster_whisper import WhisperModel
-                    import torch
-
-                    # Определяем доступное устройство
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-                    # Оптимальный compute_type для разных устройств
-                    if device == "cuda":
-                        compute_type = "float16"  # Быстрее на GPU
-                    else:
-                        compute_type = "int8"  # Быстрее на CPU
-
-                    model = WhisperModel(
-                        self.model_size,
-                        device=device,
-                        compute_type=compute_type,
-                        cpu_threads=os.cpu_count(),  # Используем все ядра CPU
-                        num_workers=4,  # Параллельная обработка
-                    )
-                else:
-                    if whisper is None:
-                        raise RuntimeError(
-                            "whisper package is not installed, выбрать 'faster-whisper'"
-                        )
-                    model = whisper.load_model(self.model_size)
+            try:
+                model = ModelManager.get_model(self.model_size, self.backend)
+            except Exception as e:
+                logger.error(f"Ошибка загрузки модели: {e}")
+                self.error.emit("", f"Не удалось загрузить модель: {str(e)}")
+                return
 
             load_time = time.time() - start_load_time
             self.status.emit(f"Модель загружена ({device_info}) за {load_time:.1f}с")
@@ -84,8 +153,16 @@ class TranscriptionThread(QThread):
             total_files = len(self.file_paths)
 
             for index, file_path in enumerate(self.file_paths):
-                if not self.is_running:
+                if self._should_stop:
+                    logger.info("Обработка остановлена пользователем")
                     break
+
+                # Проверяем существование файла перед обработкой
+                if not os.path.exists(file_path):
+                    logger.warning(f"Файл не найден: {file_path}")
+                    self.file_not_found.emit(file_path)
+                    self.error.emit(file_path, "Файл был удален или перемещен")
+                    continue
 
                 self.current_file.emit(os.path.basename(file_path))
                 self.overall_progress.emit(index + 1, total_files)
@@ -103,8 +180,8 @@ class TranscriptionThread(QThread):
                         segments, info = model.transcribe(
                             file_path,
                             language="en",
-                            beam_size=1,  # Быстрее с beam_size=1
-                            vad_filter=True,  # Фильтрация тишины
+                            beam_size=1,
+                            vad_filter=True,
                             vad_parameters=dict(
                                 min_silence_duration_ms=500,
                             ),
@@ -113,13 +190,11 @@ class TranscriptionThread(QThread):
                             {"start": s.start, "end": s.end, "text": s.text}
                             for s in segments
                         ]
-                        # Получаем длительность из info если доступно
                         if hasattr(info, 'duration') and info.duration:
                             audio_duration = info.duration
                     else:
                         result = model.transcribe(file_path, language="en", fp16=False)
                         result_segments = result["segments"]
-                        # Получаем длительность из результата если доступно
                         if "segments" in result and result["segments"]:
                             last_segment = result["segments"][-1]
                             audio_duration = last_segment["end"]
@@ -133,6 +208,7 @@ class TranscriptionThread(QThread):
 
                     self.progress.emit(80)
 
+                    # Создаем выходной файл
                     input_path = Path(file_path)
                     if self.output_format == "txt":
                         content = self.create_txt(result_segments)
@@ -141,34 +217,45 @@ class TranscriptionThread(QThread):
                         content = self.create_srt(result_segments)
                         output_path = input_path.with_suffix(".srt")
 
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        f.write(content)
+                    # Безопасное сохранение файла
+                    try:
+                        with open(output_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                    except IOError as e:
+                        logger.error(f"Ошибка записи файла {output_path}: {e}")
+                        self.error.emit(file_path, f"Не удалось сохранить файл: {str(e)}")
+                        continue
 
                     self.progress.emit(100)
                     self.finished.emit(file_path, str(output_path))
 
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
+                    logger.error(f"Ошибка обработки файла {file_path}: {e}", exc_info=True)
                     self.error.emit(file_path, str(e))
 
             # Отправляем результаты бенчмарка
             if self.total_audio_duration > 0 and self.total_processing_time > 0:
-                # Время обработки на минуту аудио
                 time_per_minute = (self.total_processing_time / self.total_audio_duration) * 60
                 self.benchmark_result.emit(self.backend, time_per_minute)
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
+            logger.error(f"Общая ошибка в потоке транскрибации: {e}", exc_info=True)
             self.error.emit("", f"Общая ошибка: {str(e)}")
 
     def stop(self):
+        """Мягкая остановка потока."""
+        self._should_stop = True
         self.is_running = False
+        logger.info("Запрошена остановка транскрибации")
 
     def get_audio_duration(self, file_path):
         """Получает длительность аудио файла в секундах."""
-        try:
-            # Пытаемся использовать ffprobe для получения длительности
-            import subprocess
-            import json
+        # Сначала проверяем доступность ffprobe
+        if not FFProbeChecker.is_available():
+            logger.warning("ffprobe недоступен, длительность не определена")
+            return 0
 
+        try:
             cmd = [
                 'ffprobe',
                 '-v', 'quiet',
@@ -177,16 +264,31 @@ class TranscriptionThread(QThread):
                 file_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30  # Таймаут 30 секунд
+            )
+
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 duration = float(data['format']['duration'])
+                logger.debug(f"Длительность {file_path}: {duration}с")
                 return duration
-        except:
-            pass
+            else:
+                logger.warning(f"ffprobe вернул код ошибки {result.returncode} для {file_path}")
+                return 0
 
-        # Если не удалось получить длительность, возвращаем 0
-        return 0
+        except subprocess.TimeoutExpired:
+            logger.error(f"Таймаут при получении длительности для {file_path}")
+            return 0
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON от ffprobe для {file_path}: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при получении длительности для {file_path}: {e}")
+            return 0
 
     def create_srt(self, segments):
         srt_content = ""
@@ -249,24 +351,9 @@ class BenchmarkThread(QThread):
                 self.status.emit("Тестирование Faster-Whisper...")
                 self.progress.emit(25)
 
-                from faster_whisper import WhisperModel
-                import torch
+                model = ModelManager.get_model(self.model_size, "faster-whisper")
 
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                compute_type = "float16" if device == "cuda" else "int8"
-
-                # Загрузка модели
-                start_time = time.time()
-                model = WhisperModel(
-                    self.model_size,
-                    device=device,
-                    compute_type=compute_type,
-                    cpu_threads=os.cpu_count(),
-                    num_workers=4,
-                )
-                load_time = time.time() - start_time
-
-                # Прогрев модели (первый запуск всегда медленнее)
+                # Прогрев модели
                 self.status.emit("Прогрев Faster-Whisper...")
                 warmup_segments, _ = model.transcribe(
                     self.test_file,
@@ -274,7 +361,7 @@ class BenchmarkThread(QThread):
                     beam_size=1,
                     vad_filter=True,
                 )
-                _ = list(warmup_segments)  # Потребляем генератор
+                _ = list(warmup_segments)
 
                 # Реальный тест
                 self.status.emit("Тестирование Faster-Whisper (основной запуск)...")
@@ -285,7 +372,6 @@ class BenchmarkThread(QThread):
                     beam_size=1,
                     vad_filter=True,
                 )
-                # Потребляем генератор
                 _ = list(segments)
                 transcribe_time = time.time() - start_time
 
@@ -293,12 +379,9 @@ class BenchmarkThread(QThread):
                 time_per_minute = (transcribe_time / audio_duration) * 60
 
                 results.append(f"🚀 Faster-Whisper ({device_info}):")
-                results.append(f"   Загрузка модели: {load_time:.2f}с")
                 results.append(f"   Транскрипция: {transcribe_time:.2f}с")
                 results.append(f"   Скорость: {time_per_minute:.2f}с на минуту аудио")
                 results.append(f"   Реальное время: {audio_duration / transcribe_time:.1f}x")
-
-                del model  # Освобождаем память
 
             except Exception as e:
                 results.append(f"❌ Faster-Whisper: {str(e)}")
@@ -311,10 +394,7 @@ class BenchmarkThread(QThread):
                     self.status.emit("Тестирование OpenAI Whisper...")
                     self.progress.emit(75)
 
-                    # Загрузка модели
-                    start_time = time.time()
-                    model = whisper.load_model(self.model_size)
-                    load_time = time.time() - start_time
+                    model = ModelManager.get_model(self.model_size, "whisper")
 
                     # Прогрев модели
                     self.status.emit("Прогрев OpenAI Whisper...")
@@ -329,17 +409,14 @@ class BenchmarkThread(QThread):
                     if result["segments"]:
                         audio_duration = result["segments"][-1]["end"]
                     else:
-                        audio_duration = 60  # По умолчанию
+                        audio_duration = 60
 
                     time_per_minute = (transcribe_time / audio_duration) * 60
 
                     results.append(f"\n🐢 OpenAI Whisper ({device_info}):")
-                    results.append(f"   Загрузка модели: {load_time:.2f}с")
                     results.append(f"   Транскрипция: {transcribe_time:.2f}с")
                     results.append(f"   Скорость: {time_per_minute:.2f}с на минуту аудио")
                     results.append(f"   Реальное время: {audio_duration / transcribe_time:.1f}x")
-
-                    del model  # Освобождаем память
 
                 except Exception as e:
                     results.append(f"\n❌ OpenAI Whisper: {str(e)}")
@@ -367,4 +444,5 @@ class BenchmarkThread(QThread):
             self.result.emit(summary)
 
         except Exception as e:
+            logger.error(f"Ошибка бенчмарка: {e}", exc_info=True)
             self.error.emit(f"Ошибка бенчмарка: {str(e)}")
