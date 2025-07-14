@@ -68,18 +68,18 @@ class Theme:
                 font-family: {cls.FONT_FAMILY};
                 font-size: {cls.FONT_SIZE_BASE};
             }}
-
+            
             /* Main Window */
             QMainWindow {{
                 background-color: {cls.BACKGROUND};
             }}
-
+            
             /* Labels */
             QLabel {{
                 color: {cls.TEXT_PRIMARY};
                 padding: 2px;
             }}
-
+            
             QLabel#dropArea {{
                 border: 2px dashed {cls.DROP_ZONE_BORDER};
                 border-radius: {cls.RADIUS_LARGE};
@@ -90,7 +90,7 @@ class Theme:
                 min-height: 40px;
                 max-height: 60px;
             }}
-
+            
             QLabel#fileCounterLabel {{
                 font-size: {cls.FONT_SIZE_BASE};
                 font-weight: 500;
@@ -99,13 +99,13 @@ class Theme:
                 background-color: {cls.SURFACE};
                 border-radius: {cls.RADIUS_MEDIUM};
             }}
-
+            
             QLabel#performanceLabel {{
                 font-size: {cls.FONT_SIZE_SMALL};
                 color: {cls.SECONDARY};
                 font-weight: 500;
             }}
-
+            
             /* ComboBoxes */
             QComboBox {{
                 background-color: {cls.SURFACE};
@@ -116,16 +116,16 @@ class Theme:
                 min-width: 120px;
                 min-height: 28px;
             }}
-
+            
             QComboBox:hover {{
                 border-color: {cls.BORDER_HOVER};
             }}
-
+            
             QComboBox::drop-down {{
                 border: none;
                 width: 20px;
             }}
-
+            
             QComboBox QAbstractItemView {{
                 background-color: {cls.SURFACE};
                 border: 1px solid {cls.BORDER};
@@ -133,7 +133,7 @@ class Theme:
                 selection-color: white;
                 padding: 4px;
             }}
-
+            
             /* Buttons */
             QPushButton {{
                 border: none;
@@ -143,53 +143,62 @@ class Theme:
                 font-size: {cls.FONT_SIZE_BASE};
                 min-height: 32px;
             }}
-
+            
+            /* Icon-only buttons */
+            QPushButton[text="📊"], 
+            QPushButton[text="▶"], 
+            QPushButton[text="⏹"], 
+            QPushButton[text="🗑️"] {{
+                font-size: 16px;
+                padding: {cls.PADDING_SMALL};
+            }}
+            
             QPushButton#startButton {{
                 background-color: {cls.SUCCESS};
                 color: white;
             }}
-
+            
             QPushButton#startButton:hover {{
                 background-color: {cls.SUCCESS_HOVER};
             }}
-
+            
             QPushButton#startButton:disabled {{
                 background-color: {cls.SURFACE};
                 color: {cls.TEXT_DISABLED};
             }}
-
+            
             QPushButton#stopButton {{
                 background-color: {cls.WARNING};
                 color: {cls.BACKGROUND};
             }}
-
+            
             QPushButton#stopButton:hover {{
                 background-color: {cls.WARNING_HOVER};
             }}
-
+            
             QPushButton#stopButton:disabled {{
                 background-color: {cls.SURFACE};
                 color: {cls.TEXT_DISABLED};
             }}
-
+            
             QPushButton#clearButton {{
                 background-color: {cls.ERROR};
                 color: white;
             }}
-
+            
             QPushButton#clearButton:hover {{
                 background-color: {cls.ERROR_HOVER};
             }}
-
+            
             QPushButton#benchmarkButton {{
                 background-color: {cls.PRIMARY};
                 color: white;
             }}
-
+            
             QPushButton#benchmarkButton:hover {{
                 background-color: {cls.PRIMARY_HOVER};
             }}
-
+            
             /* Progress bars */
             QProgressBar {{
                 border: none;
@@ -201,18 +210,18 @@ class Theme:
                 font-weight: 500;
                 font-size: {cls.FONT_SIZE_SMALL};
             }}
-
+            
             QProgressBar::chunk {{
                 border-radius: 8px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                                             stop:0 {cls.PRIMARY}, stop:1 {cls.SECONDARY});
             }}
-
+            
             QProgressBar#overallProgress::chunk {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                                             stop:0 {cls.SUCCESS}, stop:1 #00D4A4);
             }}
-
+            
             /* List widget */
             QListWidget {{
                 background-color: {cls.SURFACE};
@@ -221,22 +230,22 @@ class Theme:
                 padding: {cls.PADDING_SMALL};
                 outline: none;
             }}
-
+            
             QListWidget::item {{
                 padding: {cls.PADDING_SMALL};
                 border-radius: {cls.RADIUS_SMALL};
                 margin: 2px 0;
             }}
-
+            
             QListWidget::item:hover {{
                 background-color: {cls.SURFACE_HOVER};
             }}
-
+            
             QListWidget::item:selected {{
                 background-color: rgba(108, 92, 231, 0.3);
                 border: 1px solid {cls.PRIMARY};
             }}
-
+            
             /* Text edit */
             QTextEdit {{
                 background-color: {cls.SURFACE};
@@ -247,7 +256,7 @@ class Theme:
                 font-family: {cls.FONT_FAMILY_MONO};
                 font-size: {cls.FONT_SIZE_SMALL};
             }}
-
+            
             /* Group box */
             QGroupBox {{
                 font-weight: 600;
@@ -258,81 +267,81 @@ class Theme:
                 margin-top: 10px;
                 padding-top: 10px;
             }}
-
+            
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 20px;
                 padding: 0 10px 0 10px;
                 background-color: {cls.BACKGROUND};
             }}
-
+            
             /* Scroll bars */
             QScrollBar:vertical {{
                 background-color: {cls.SURFACE};
                 width: 10px;
                 border-radius: 5px;
             }}
-
+            
             QScrollBar::handle:vertical {{
                 background-color: {cls.PRIMARY};
                 border-radius: 5px;
                 min-height: 20px;
             }}
-
+            
             QScrollBar::handle:vertical:hover {{
                 background-color: {cls.SECONDARY};
             }}
-
+            
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {{
                 height: 0;
             }}
-
+            
             QScrollBar:horizontal {{
                 background-color: {cls.SURFACE};
                 height: 10px;
                 border-radius: 5px;
             }}
-
+            
             QScrollBar::handle:horizontal {{
                 background-color: {cls.PRIMARY};
                 border-radius: 5px;
                 min-width: 20px;
             }}
-
+            
             QScrollBar::handle:horizontal:hover {{
                 background-color: {cls.SECONDARY};
             }}
-
+            
             QScrollBar::add-line:horizontal,
             QScrollBar::sub-line:horizontal {{
                 width: 0;
             }}
-
+            
             /* Splitter */
             QSplitter::handle {{
                 background-color: {cls.BORDER};
                 width: 2px;
             }}
-
+            
             QSplitter::handle:hover {{
                 background-color: {cls.PRIMARY};
             }}
-
+            
             /* Dialog */
             QDialog {{
                 background-color: {cls.BACKGROUND};
             }}
-
+            
             /* Message Box */
             QMessageBox {{
                 background-color: {cls.BACKGROUND};
             }}
-
+            
             QMessageBox QLabel {{
                 color: {cls.TEXT_PRIMARY};
             }}
-
+            
             /* Tool tips */
             QToolTip {{
                 background-color: {cls.SURFACE};

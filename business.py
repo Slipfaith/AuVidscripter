@@ -116,12 +116,13 @@ class TranscriptionThread(QThread):
     benchmark_result = Signal(str, float)  # engine_name, time_per_minute
     file_not_found = Signal(str)  # file_path that was not found
 
-    def __init__(self, file_paths, model_size, output_format="srt", backend="whisper"):
+    def __init__(self, file_paths, model_size, output_format="srt", backend="whisper", language="auto"):
         super().__init__()
         self.file_paths = file_paths
         self.model_size = model_size
         self.output_format = output_format
         self.backend = backend
+        self.language = language
         self.is_running = True
         self.total_audio_duration = 0
         self.total_processing_time = 0
@@ -179,7 +180,7 @@ class TranscriptionThread(QThread):
                     if self.backend == "faster-whisper":
                         segments, info = model.transcribe(
                             file_path,
-                            language="en",
+                            language=None if self.language == "auto" else self.language,
                             beam_size=1,
                             vad_filter=True,
                             vad_parameters=dict(
@@ -192,12 +193,22 @@ class TranscriptionThread(QThread):
                         ]
                         if hasattr(info, 'duration') and info.duration:
                             audio_duration = info.duration
+                        # Log detected language if auto
+                        if self.language == "auto" and hasattr(info, 'language'):
+                            logger.info(f"Определен язык: {info.language}")
                     else:
-                        result = model.transcribe(file_path, language="en", fp16=False)
+                        result = model.transcribe(
+                            file_path,
+                            language=None if self.language == "auto" else self.language,
+                            fp16=False
+                        )
                         result_segments = result["segments"]
                         if "segments" in result and result["segments"]:
                             last_segment = result["segments"][-1]
                             audio_duration = last_segment["end"]
+                        # Log detected language if auto
+                        if self.language == "auto" and "language" in result:
+                            logger.info(f"Определен язык: {result['language']}")
 
                     processing_time = time.time() - start_time
 
@@ -398,12 +409,12 @@ class BenchmarkThread(QThread):
 
                     # Прогрев модели
                     self.status.emit("Прогрев OpenAI Whisper...")
-                    _ = model.transcribe(self.test_file, language="en", fp16=False)
+                    _ = model.transcribe(self.test_file, language=None, fp16=False)
 
                     # Реальный тест
                     self.status.emit("Тестирование OpenAI Whisper (основной запуск)...")
                     start_time = time.time()
-                    result = model.transcribe(self.test_file, language="en", fp16=False)
+                    result = model.transcribe(self.test_file, language=None, fp16=False)
                     transcribe_time = time.time() - start_time
 
                     if result["segments"]:
